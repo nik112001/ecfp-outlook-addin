@@ -196,38 +196,52 @@ export default function ReadPane(): React.ReactElement {
   useEffect(() => {
     let cancelled = false;
 
-    readOfficeItemData()
-      .then((emailData) => {
-        if (cancelled) return;
-        const result = calcSendReceive(emailData);
-        setDisplay({ emailData, result });
-        setIsDemo(false);
-        setLoading(false);
-        // Fire-and-forget cache write; non-fatal if it fails
-        const itemId = (Office as any)?.context?.mailbox?.item?.itemId as string | undefined; // eslint-disable-line
-        if (itemId) {
-          putFootprint({
-            messageId: itemId,
-            gCO2e: result.gCO2e,
-            sizeMB: emailData.sizeMB,
-            recipientCount: emailData.recipientCount,
-            isIntranet: emailData.isIntranet,
-            calculatedAt: Date.now(),
-            methodologyVersion: METHODOLOGY_VERSION,
-          }).catch(() => {});
-        }
-      })
-      .catch(() => {
-        if (cancelled) return;
-        // Graceful fallback: show demo data when not inside Outlook
-        const result = calcSendReceive(DEMO_EMAIL_DATA);
-        setDisplay({ emailData: DEMO_EMAIL_DATA, result });
-        setIsDemo(true);
-        setLoading(false);
-      });
+    const calculate = () => {
+      setLoading(true);
+      readOfficeItemData()
+        .then((emailData) => {
+          if (cancelled) return;
+          const result = calcSendReceive(emailData);
+          setDisplay({ emailData, result });
+          setIsDemo(false);
+          setLoading(false);
+          const itemId = (Office as any)?.context?.mailbox?.item?.itemId as string | undefined; // eslint-disable-line
+          if (itemId) {
+            putFootprint({
+              messageId: itemId,
+              gCO2e: result.gCO2e,
+              sizeMB: emailData.sizeMB,
+              recipientCount: emailData.recipientCount,
+              isIntranet: emailData.isIntranet,
+              calculatedAt: Date.now(),
+              methodologyVersion: METHODOLOGY_VERSION,
+            }).catch(() => {});
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          const result = calcSendReceive(DEMO_EMAIL_DATA);
+          setDisplay({ emailData: DEMO_EMAIL_DATA, result });
+          setIsDemo(true);
+          setLoading(false);
+        });
+    };
+
+    // Register ItemChanged so the pane updates when the user clicks a different email
+    if (typeof Office !== "undefined" && Office.context?.mailbox) {
+      Office.context.mailbox.addHandlerAsync(
+        Office.EventType.ItemChanged,
+        () => { if (!cancelled) calculate(); }
+      );
+    }
+
+    calculate();
 
     return () => {
       cancelled = true;
+      if (typeof Office !== "undefined" && Office.context?.mailbox) {
+        Office.context.mailbox.removeHandlerAsync(Office.EventType.ItemChanged, () => {});
+      }
     };
   }, []);
 
