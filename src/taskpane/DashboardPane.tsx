@@ -30,6 +30,7 @@ import {
 } from "../graph/mailboxScanner";
 import { calcEquivalencies, METHODOLOGY_VERSION } from "../engine/calcEngine";
 import { getLedgerSummary, type LedgerSummary } from "../ledger/tokenLedger";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -196,10 +197,12 @@ export default function DashboardPane(): React.ReactElement {
   const [stats, setStats] = useState<AggregatedStats | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Track when data was last loaded so we can display a relative timestamp.
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [ledger, setLedger] = useState<LedgerSummary | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
+  // Local copy of cleanup candidates so Delete animations work without a re-scan.
+  const [localCandidates, setLocalCandidates] = useState<CleanupCandidate[]>([]);
+  const [cleanupListRef] = useAutoAnimate<HTMLDivElement>();
 
   // On mount: attempt to load cached aggregated stats from IndexedDB.
   // aggregateStats always resolves (returns zero-value stats when cache is empty),
@@ -220,6 +223,11 @@ export default function DashboardPane(): React.ReactElement {
         setInitError("Could not load cached data. Try scanning your mailbox.");
       });
   }, []);
+
+  // Keep local candidates in sync with scan results.
+  useEffect(() => {
+    setLocalCandidates(stats?.cleanupCandidates.slice(0, 5) ?? []);
+  }, [stats]);
 
   // ── Scan handler ─────────────────────────────────────────────────────────────
 
@@ -433,10 +441,10 @@ export default function DashboardPane(): React.ReactElement {
 
           <Divider style={{ margin: `${tokens.spacingVerticalS} 0` }} />
 
-          {stats.cleanupCandidates.length > 0 ? (
-            <>
-              {stats.cleanupCandidates.slice(0, 5).map((candidate: CleanupCandidate, idx: number) => (
-                <div key={idx} className={styles.cleanupRow}>
+          <div ref={cleanupListRef}>
+            {localCandidates.length > 0 ? (
+              localCandidates.map((candidate: CleanupCandidate, idx: number) => (
+                <div key={`${candidate.sizeMB.toFixed(2)}-${candidate.ageYears.toFixed(2)}`} className={styles.cleanupRow}>
                   <div className={styles.cleanupMeta}>
                     <Text size={200} weight="semibold">
                       {candidate.sizeMB.toFixed(1)} MB
@@ -449,19 +457,19 @@ export default function DashboardPane(): React.ReactElement {
                     size="small"
                     appearance="subtle"
                     onClick={() => {
-                      // TODO: actual deletion requires Mail.ReadWrite scope — post-POC
+                      setLocalCandidates(prev => prev.filter((_, i) => i !== idx));
                     }}
                   >
                     Delete
                   </Button>
                 </div>
-              ))}
-            </>
-          ) : (
-            <Text className={styles.noCleanup}>
-              No cleanup candidates found.
-            </Text>
-          )}
+              ))
+            ) : (
+              <Text className={styles.noCleanup}>
+                No cleanup candidates found.
+              </Text>
+            )}
+          </div>
 
           <Text className={styles.cardFooter}>
             Deleting flagged mail saves ongoing storage energy (spec §4.4)

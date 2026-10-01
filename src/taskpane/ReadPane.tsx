@@ -6,7 +6,8 @@ import {
   Divider,
   Link,
   ProgressBar,
-  Spinner,
+  Skeleton,
+  SkeletonItem,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -268,9 +269,26 @@ export default function ReadPane(): React.ReactElement {
         <Text size={500} weight="semibold" className={styles.title}>
           Email Carbon Footprint
         </Text>
-        <div className={styles.spinnerContainer}>
-          <Spinner label="Calculating…" size="medium" />
-        </div>
+        <Card>
+          <CardHeader header={<Text weight="semibold" size={300}>Estimated footprint</Text>} />
+          <Skeleton>
+            <SkeletonItem
+              size={96}
+              style={{ margin: `${tokens.spacingVerticalM} auto`, width: "200px", borderRadius: tokens.borderRadiusMedium }}
+            />
+          </Skeleton>
+        </Card>
+        <Divider />
+        <Text size={300} weight="semibold">Breakdown</Text>
+        <Skeleton>
+          <div style={{ display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS }}>
+            <SkeletonItem size={16} />
+            <SkeletonItem size={8} />
+            <SkeletonItem size={8} style={{ width: "75%" }} />
+            <SkeletonItem size={8} />
+            <SkeletonItem size={8} style={{ width: "55%" }} />
+          </div>
+        </Skeleton>
       </div>
     );
   }

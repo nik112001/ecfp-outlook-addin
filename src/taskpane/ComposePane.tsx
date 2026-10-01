@@ -360,7 +360,7 @@ export default function ComposePane(): React.ReactElement {
         ) : (
           <Text
             className={styles.footprintDisplay}
-            style={{ color: cssColor }}
+            style={{ color: cssColor, transition: "color 0.4s ease" }}
           >
             🌿 {gCO2e.toFixed(2)} g CO₂e
           </Text>
