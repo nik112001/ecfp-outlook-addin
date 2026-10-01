@@ -3,6 +3,7 @@ import {
   Text,
   Card,
   CardHeader,
+  Badge,
   Divider,
   makeStyles,
   tokens,
@@ -101,7 +102,7 @@ function colorTier(gCO2e: number): "green" | "amber" | "red" {
 
 /** Maps a color tier to a CSS color string. */
 function colorValue(tier: "green" | "amber" | "red"): string {
-  if (tier === "green") return "#107c10";
+  if (tier === "green") return "#2e7d4f";
   if (tier === "amber") return "#c19c00";
   return "#d13438";
 }
@@ -366,12 +367,21 @@ export default function ComposePane(): React.ReactElement {
         {loading && !isDemo ? (
           <Spinner label="Calculating…" size="medium" />
         ) : (
-          <Text
-            className={styles.footprintDisplay}
-            style={{ color: cssColor, transition: "color 0.4s ease" }}
-          >
-            🌿 {gCO2e.toFixed(2)} g CO₂e
-          </Text>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: tokens.spacingVerticalXS }}>
+            <Text
+              className={styles.footprintDisplay}
+              style={{ color: cssColor, transition: "color 0.4s ease" }}
+            >
+              🌿 {gCO2e.toFixed(2)} g CO₂e
+            </Text>
+            <Badge
+              appearance="filled"
+              color={color === "green" ? "success" : color === "amber" ? "warning" : "danger"}
+              size="medium"
+            >
+              {color === "green" ? "LOW" : color === "amber" ? "MED" : "HIGH"}
+            </Badge>
+          </div>
         )}
       </Card>
 

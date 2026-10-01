@@ -89,11 +89,11 @@ function footprintColor(gCO2e: number): string {
   try {
     const stored = localStorage.getItem("ecfp-thresholds");
     const t = stored ? JSON.parse(stored) as { green: number; amber: number } : { green: 2, amber: 10 };
-    if (gCO2e < t.green) return "#107c10";
+    if (gCO2e < t.green) return "#2e7d4f";
     if (gCO2e <= t.amber) return "#c19c00";
     return "#d13438";
   } catch {
-    if (gCO2e < 2) return "#107c10";
+    if (gCO2e < 2) return "#2e7d4f";
     if (gCO2e <= 10) return "#c19c00";
     return "#d13438";
   }

@@ -1,6 +1,6 @@
 // Semantic carbon footprint colors — matches Microsoft Fluent UI palette
 export const CARBON_COLORS = {
-  green: "#107c10",   // tokens.colorStatusSuccessForeground1 equivalent
+  green: "#2e7d4f",   // forest green — warmer than Fluent default, approved design direction
   amber: "#c19c00",   // tokens.colorStatusWarningForeground1 equivalent
   red: "#d13438",     // tokens.colorStatusDangerForeground1 equivalent
 } as const;

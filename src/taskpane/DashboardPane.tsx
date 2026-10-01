@@ -9,6 +9,7 @@ import {
   Link,
   MessageBar,
   ProgressBar,
+  Badge,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -183,7 +184,7 @@ function monthName(monthIndex: number): string {
 
 /** Returns a CSS color for the monthly threshold (spec §5.3). */
 function monthlyColor(mtdG: number): string {
-  if (mtdG < 5000) return "#107c10"; // green
+  if (mtdG < 5000) return "#2e7d4f"; // green
   if (mtdG <= 15000) return "#c19c00"; // amber
   return "#d13438"; // red
 }
@@ -391,6 +392,12 @@ export default function DashboardPane(): React.ReactElement {
                 data={chartData}
                 margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
               >
+                <defs>
+                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2e7d4f" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#a8d5b5" stopOpacity={0.8} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis
                   dataKey="name"
@@ -414,7 +421,7 @@ export default function DashboardPane(): React.ReactElement {
                 <Tooltip
                   formatter={(value: number) => [`${value} g CO₂e`, "Footprint"]}
                 />
-                <Bar dataKey="value" fill={tokens.colorBrandBackground} radius={[3, 3, 0, 0]} />
+                <Bar dataKey="value" fill="url(#barGradient)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -491,12 +498,23 @@ export default function DashboardPane(): React.ReactElement {
             <Spinner size="tiny" />
           ) : (
             <>
-              <Text size={300} weight="semibold">
-                {ledger.tier === "platinum" && "🏆 Platinum"}
-                {ledger.tier === "gold" && "🥇 Gold"}
-                {ledger.tier === "silver" && "🥈 Silver"}
-                {ledger.tier === "over-budget" && "🔴 Over budget"}
-              </Text>
+              <Badge
+                size="large"
+                appearance="filled"
+                color={
+                  ledger.tier === "platinum" || ledger.tier === "gold"
+                    ? "success"
+                    : ledger.tier === "silver"
+                    ? "warning"
+                    : "danger"
+                }
+                style={{ marginBottom: tokens.spacingVerticalXS }}
+              >
+                {ledger.tier === "platinum" && "Platinum"}
+                {ledger.tier === "gold" && "Gold"}
+                {ledger.tier === "silver" && "Silver"}
+                {ledger.tier === "over-budget" && "Over Budget"}
+              </Badge>
               <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
                 {ledger.spent.toFixed(0)} g of {ledger.monthlyBudget.toFixed(0)} g monthly budget used
               </Text>
