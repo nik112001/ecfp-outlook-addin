@@ -195,6 +195,7 @@ export default function ReadPane(): React.ReactElement {
 
   useEffect(() => {
     let cancelled = false;
+    let lastItemId: string | undefined;
 
     const calculate = () => {
       setLoading(true);
@@ -227,21 +228,22 @@ export default function ReadPane(): React.ReactElement {
         });
     };
 
-    // Register ItemChanged so the pane updates when the user clicks a different email
-    if (typeof Office !== "undefined" && Office.context?.mailbox) {
-      Office.context.mailbox.addHandlerAsync(
-        Office.EventType.ItemChanged,
-        () => { if (!cancelled) calculate(); }
-      );
-    }
+    // Poll every 800ms — recalculate only when itemId actually changes.
+    // ItemChanged event is unreliable in Outlook web for sideloaded add-ins.
+    const poll = setInterval(() => {
+      if (cancelled) return;
+      const currentId = (Office as any)?.context?.mailbox?.item?.itemId as string | undefined; // eslint-disable-line
+      if (currentId !== lastItemId) {
+        lastItemId = currentId;
+        calculate();
+      }
+    }, 800);
 
     calculate();
 
     return () => {
       cancelled = true;
-      if (typeof Office !== "undefined" && Office.context?.mailbox) {
-        Office.context.mailbox.removeHandlerAsync(Office.EventType.ItemChanged, () => {});
-      }
+      clearInterval(poll);
     };
   }, []);
 
