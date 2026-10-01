@@ -176,10 +176,18 @@ export default function ComposePane(): React.ReactElement {
   const recalculate = useCallback((): void => {
     if (!hasOfficeContext()) return;
     if (calculatingRef.current) return;
-    calculatingRef.current = true;
-    setLoading(true);
 
     const item = Office.context.mailbox.item!; // eslint-disable-line
+
+    // Guard: item.to.getAsync only exists on compose-mode items
+    if (typeof (item.to as any)?.getAsync !== 'function') {
+      setIsDemo(true);
+      setLoading(false);
+      return;
+    }
+
+    calculatingRef.current = true;
+    setLoading(true);
 
     // Wrap getAsync callbacks in Promises for parallel execution.
     const toPromise = new Promise<Office.EmailAddressDetails[]>((resolve) => {
@@ -292,7 +300,7 @@ export default function ComposePane(): React.ReactElement {
     item.addHandlerAsync(
       Office.EventType.AttachmentsChanged,
       (_ev: Office.AttachmentsChangedEventArgs) => { // eslint-disable-line
-        recalculate();
+        setTimeout(() => recalculate(), 800);
       }
     );
 
@@ -391,7 +399,7 @@ export default function ComposePane(): React.ReactElement {
       <div className={styles.metricRow}>
         <Text size={200}>Body</Text>
         <Text size={200} weight="semibold">
-          ~{bodyMB.toFixed(2)} MB
+          {bodyMB >= 0.1 ? `~${bodyMB.toFixed(2)} MB` : `~${(bodyMB * 1024).toFixed(0)} KB`}
         </Text>
       </div>
 

@@ -255,9 +255,23 @@ export default function ReadPane(): React.ReactElement {
 
     calculate();
 
+    // Primary: ItemChanged fires when user clicks a different email (requires SupportsPinning)
+    if (typeof Office !== 'undefined' && Office.context?.mailbox?.addHandlerAsync) {
+      Office.context.mailbox.addHandlerAsync(
+        Office.EventType.ItemChanged,
+        () => {
+          lastItemId = undefined; // reset so poll also triggers
+          calculate();
+        }
+      );
+    }
+
     return () => {
       cancelled = true;
       clearInterval(poll);
+      if (typeof Office !== 'undefined' && Office.context?.mailbox?.removeHandlerAsync) {
+        Office.context.mailbox.removeHandlerAsync(Office.EventType.ItemChanged);
+      }
     };
   }, []);
 
