@@ -12,6 +12,7 @@ import {
 } from "@fluentui/react-components";
 import { calcSendReceive, calcEquivalencies, CalcResult, METHODOLOGY_VERSION } from "../engine/calcEngine";
 import { putFootprint } from "../cache/messageCache";
+import { debitEmail } from "../ledger/tokenLedger";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -84,9 +85,17 @@ interface DisplayState {
 
 /** Returns a CSS color string based on gCO2e thresholds from spec §5.1. */
 function footprintColor(gCO2e: number): string {
-  if (gCO2e < 2) return "#107c10"; // green
-  if (gCO2e <= 10) return "#c19c00"; // amber
-  return "#d13438"; // red
+  try {
+    const stored = localStorage.getItem("ecfp-thresholds");
+    const t = stored ? JSON.parse(stored) as { green: number; amber: number } : { green: 2, amber: 10 };
+    if (gCO2e < t.green) return "#107c10";
+    if (gCO2e <= t.amber) return "#c19c00";
+    return "#d13438";
+  } catch {
+    if (gCO2e < 2) return "#107c10";
+    if (gCO2e <= 10) return "#c19c00";
+    return "#d13438";
+  }
 }
 
 /**
@@ -198,6 +207,7 @@ export default function ReadPane(): React.ReactElement {
     let lastItemId: string | undefined;
 
     const calculate = () => {
+      if (cancelled) return;
       setLoading(true);
       readOfficeItemData()
         .then((emailData) => {
@@ -206,7 +216,8 @@ export default function ReadPane(): React.ReactElement {
           setDisplay({ emailData, result });
           setIsDemo(false);
           setLoading(false);
-          const itemId = (Office as any)?.context?.mailbox?.item?.itemId as string | undefined; // eslint-disable-line
+          const item = Office.context?.mailbox?.item as Office.MessageRead | undefined;
+          const itemId = item?.itemId;
           if (itemId) {
             putFootprint({
               messageId: itemId,
@@ -217,6 +228,7 @@ export default function ReadPane(): React.ReactElement {
               calculatedAt: Date.now(),
               methodologyVersion: METHODOLOGY_VERSION,
             }).catch(() => {});
+            debitEmail(itemId, result.gCO2e).catch(() => {});
           }
         })
         .catch(() => {
@@ -232,7 +244,8 @@ export default function ReadPane(): React.ReactElement {
     // ItemChanged event is unreliable in Outlook web for sideloaded add-ins.
     const poll = setInterval(() => {
       if (cancelled) return;
-      const currentId = (Office as any)?.context?.mailbox?.item?.itemId as string | undefined; // eslint-disable-line
+      const currentItem = Office.context?.mailbox?.item as Office.MessageRead | undefined;
+      const currentId = currentItem?.itemId;
       if (currentId !== lastItemId) {
         lastItemId = currentId;
         calculate();

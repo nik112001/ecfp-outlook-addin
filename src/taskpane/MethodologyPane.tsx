@@ -7,6 +7,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
+import { METHODOLOGY_VERSION } from "../engine/calcEngine";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,7 @@ export default function MethodologyPane(): React.ReactElement {
           How eCFP calculates your footprint
         </Text>
         <Text size={200} className={styles.subtitle}>
-          Methodology v0.3 · All computation client-side
+          Methodology v{METHODOLOGY_VERSION} · All computation client-side
         </Text>
       </div>
 

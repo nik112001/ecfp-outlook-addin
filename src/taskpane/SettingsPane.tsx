@@ -153,6 +153,9 @@ export default function SettingsPane(): React.ReactElement {
   // ── Ledger/badge state ───────────────────────────────────────────────────────
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
 
+  // ── Clear-data state ─────────────────────────────────────────────────────────
+  const [dataCleared, setDataCleared] = useState<boolean>(false);
+
   // ── Sign-out state ───────────────────────────────────────────────────────────
   const [signedOut, setSignedOut] = useState<boolean>(false);
 
@@ -188,11 +191,18 @@ export default function SettingsPane(): React.ReactElement {
     setTimeout(() => setBudgetSaved(false), 2000);
   }
 
-  function handleClearData(): void {
-    indexedDB.deleteDatabase("ecfp");
-    indexedDB.deleteDatabase("ecfp-ledger");
-    localStorage.clear();
-    window.location.reload();
+  async function handleClearData(): Promise<void> {
+    // Only clear eCFP-specific data, not MSAL auth tokens
+    localStorage.removeItem("ecfp-thresholds");
+    // Clear IndexedDB stores
+    await indexedDB.deleteDatabase("ecfp");
+    await indexedDB.deleteDatabase("ecfp-ledger");
+    // Reset threshold UI state to defaults
+    setGreenVal(DEFAULT_THRESHOLDS.green);
+    setAmberVal(DEFAULT_THRESHOLDS.amber);
+    // Show brief confirmation
+    setDataCleared(true);
+    setTimeout(() => setDataCleared(false), 3000);
   }
 
   async function handleSignOut(): Promise<void> {
@@ -375,19 +385,24 @@ export default function SettingsPane(): React.ReactElement {
               <DialogBody>
                 <DialogTitle>Clear all local data?</DialogTitle>
                 <DialogContent>
-                  This will delete all cached footprints and ledger history. Continue?
+                  This will delete all cached footprints and ledger history. Your Microsoft sign-in will be preserved. Continue?
                 </DialogContent>
                 <DialogActions>
                   <DialogTrigger disableButtonEnhancement>
                     <Button appearance="secondary">Cancel</Button>
                   </DialogTrigger>
-                  <Button appearance="primary" onClick={handleClearData}>
-                    Clear data
-                  </Button>
+                  <DialogTrigger disableButtonEnhancement>
+                    <Button appearance="primary" onClick={() => void handleClearData()}>
+                      Clear data
+                    </Button>
+                  </DialogTrigger>
                 </DialogActions>
               </DialogBody>
             </DialogSurface>
           </Dialog>
+          {dataCleared && (
+            <Text className={styles.savedConfirmation}>Data cleared.</Text>
+          )}
         </div>
       </Card>
 

@@ -6,6 +6,7 @@ import {
   Divider,
   makeStyles,
   tokens,
+  Spinner,
 } from "@fluentui/react-components";
 import {
   calcSendReceive,
@@ -83,11 +84,19 @@ interface CFFState {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Returns the color tier based on gCO2e thresholds (spec §5.1). */
+/** Returns the color tier based on configurable gCO2e thresholds (spec §5.1). */
 function colorTier(gCO2e: number): "green" | "amber" | "red" {
-  if (gCO2e < 2) return "green";
-  if (gCO2e <= 10) return "amber";
-  return "red";
+  try {
+    const stored = localStorage.getItem("ecfp-thresholds");
+    const t = stored ? JSON.parse(stored) as { green: number; amber: number } : { green: 2, amber: 10 };
+    if (gCO2e < t.green) return "green";
+    if (gCO2e <= t.amber) return "amber";
+    return "red";
+  } catch {
+    if (gCO2e < 2) return "green";
+    if (gCO2e <= 10) return "amber";
+    return "red";
+  }
 }
 
 /** Maps a color tier to a CSS color string. */
@@ -154,14 +163,21 @@ export default function ComposePane(): React.ReactElement {
 
   const [cff, setCff] = useState<CFFState>(DEMO_STATE);
   const [isDemo, setIsDemo] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
   // Keep a ref to the polling interval so we can clear it on unmount.
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // In-flight guard to prevent overlapping recalculate calls.
+  const calculatingRef = useRef<boolean>(false);
 
   // ── recalculate ─────────────────────────────────────────────────────────────
 
   const recalculate = useCallback((): void => {
     if (!hasOfficeContext()) return;
+    if (calculatingRef.current) return;
+    calculatingRef.current = true;
+    setLoading(true);
 
     const item = Office.context.mailbox.item!; // eslint-disable-line
 
@@ -199,50 +215,55 @@ export default function ComposePane(): React.ReactElement {
       );
     });
 
-    Promise.all([toPromise, ccPromise, bodyPromise]).then(
-      ([toList, ccList, bodyMB]) => {
-        // Attachment size is synchronous in compose mode.
-        const attachments: Office.AttachmentDetails[] =
-          item.attachments ?? [];
-        const attachmentCount = attachments.length;
-        const attachmentMB =
-          attachments.reduce((sum, att) => sum + (att.size ?? 0), 0) /
-          (1024 * 1024);
+    Promise.all([toPromise, ccPromise, bodyPromise])
+      .then(
+        ([toList, ccList, bodyMB]) => {
+          // Attachment size is synchronous in compose mode.
+          const attachments: Office.AttachmentDetails[] =
+            item.attachments ?? [];
+          const attachmentCount = attachments.length;
+          const attachmentMB =
+            attachments.reduce((sum, att) => sum + (att.size ?? 0), 0) /
+            (1024 * 1024);
 
-        const allRecipients = [...toList, ...ccList];
-        const recipientCount = allRecipients.length;
+          const allRecipients = [...toList, ...ccList];
+          const recipientCount = allRecipients.length;
 
-        // Determine intranet: all recipients share the composer's domain.
-        const composerEmail: string =
-          Office.context.mailbox.userProfile?.emailAddress ?? "";
-        const composerDomain = extractDomain(composerEmail);
-        const isIntranet =
-          composerDomain.length > 0 &&
-          recipientCount > 0 &&
-          allRecipients.every(
-            (r) =>
-              extractDomain(r.emailAddress ?? "") === composerDomain
-          );
+          // Determine intranet: all recipients share the composer's domain.
+          const composerEmail: string =
+            Office.context.mailbox.userProfile?.emailAddress ?? "";
+          const composerDomain = extractDomain(composerEmail);
+          const isIntranet =
+            composerDomain.length > 0 &&
+            recipientCount > 0 &&
+            allRecipients.every(
+              (r) =>
+                extractDomain(r.emailAddress ?? "") === composerDomain
+            );
 
-        const sizeMB = attachmentMB + bodyMB;
-        const { gCO2e } = calcSendReceive({
-          sizeMB,
-          recipientCount,
-          isIntranet,
-        });
+          const sizeMB = attachmentMB + bodyMB;
+          const { gCO2e } = calcSendReceive({
+            sizeMB,
+            recipientCount,
+            isIntranet,
+          });
 
-        setCff({
-          gCO2e,
-          sizeMB,
-          recipientCount,
-          attachmentCount,
-          attachmentMB,
-          bodyMB,
-          isIntranet,
-          color: colorTier(gCO2e),
-        });
-      }
-    );
+          setCff({
+            gCO2e,
+            sizeMB,
+            recipientCount,
+            attachmentCount,
+            attachmentMB,
+            bodyMB,
+            isIntranet,
+            color: colorTier(gCO2e),
+          });
+        }
+      )
+      .finally(() => {
+        calculatingRef.current = false;
+        setLoading(false);
+      });
   }, []);
 
   // ── Mount / unmount ─────────────────────────────────────────────────────────
@@ -334,12 +355,16 @@ export default function ComposePane(): React.ReactElement {
             </Text>
           }
         />
-        <Text
-          className={styles.footprintDisplay}
-          style={{ color: cssColor }}
-        >
-          🌿 {gCO2e.toFixed(2)} g CO₂e
-        </Text>
+        {loading && !isDemo ? (
+          <Spinner label="Calculating…" size="medium" />
+        ) : (
+          <Text
+            className={styles.footprintDisplay}
+            style={{ color: cssColor }}
+          >
+            🌿 {gCO2e.toFixed(2)} g CO₂e
+          </Text>
+        )}
       </Card>
 
       <Divider />

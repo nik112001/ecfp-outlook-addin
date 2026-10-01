@@ -7,6 +7,8 @@ import {
   Spinner,
   Divider,
   Link,
+  MessageBar,
+  ProgressBar,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -27,6 +29,7 @@ import {
   ScanProgress,
 } from "../graph/mailboxScanner";
 import { calcEquivalencies, METHODOLOGY_VERSION } from "../engine/calcEngine";
+import { getLedgerSummary, type LedgerSummary } from "../ledger/tokenLedger";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -195,6 +198,8 @@ export default function DashboardPane(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   // Track when data was last loaded so we can display a relative timestamp.
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [ledger, setLedger] = useState<LedgerSummary | null>(null);
+  const [initError, setInitError] = useState<string | null>(null);
 
   // On mount: attempt to load cached aggregated stats from IndexedDB.
   // aggregateStats always resolves (returns zero-value stats when cache is empty),
@@ -208,9 +213,11 @@ export default function DashboardPane(): React.ReactElement {
           setStatus("ready");
         }
         // messageCount === 0 → no cached data yet, remain 'idle' for scan CTA.
+        return getLedgerSummary();
       })
+      .then(setLedger)
       .catch(() => {
-        // Non-fatal: cache read failure just leaves us in idle state.
+        setInitError("Could not load cached data. Try scanning your mailbox.");
       });
   }, []);
 
@@ -264,6 +271,12 @@ export default function DashboardPane(): React.ReactElement {
         <Text size={300} style={{ color: tokens.colorNeutralForeground2 }}>
           Your email carbon footprint
         </Text>
+
+        {initError !== null && (
+          <MessageBar intent="error">
+            {initError}
+          </MessageBar>
+        )}
 
         <div className={styles.headerActions}>
           {status === "idle" && (
@@ -456,7 +469,7 @@ export default function DashboardPane(): React.ReactElement {
         </Card>
       )}
 
-      {/* ── 5. Token balance stub ─────────────────────────────────────────────── */}
+      {/* ── 5. Token balance card ─────────────────────────────────────────────── */}
       {status === "ready" && (
         <Card className={styles.mutedCard}>
           <CardHeader
@@ -466,10 +479,31 @@ export default function DashboardPane(): React.ReactElement {
               </Text>
             }
           />
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            Token ledger coming in M4. Budget tracking and badge tiers will
-            appear here.
-          </Text>
+          {ledger === null ? (
+            <Spinner size="tiny" />
+          ) : (
+            <>
+              <Text size={300} weight="semibold">
+                {ledger.tier === "platinum" && "🏆 Platinum"}
+                {ledger.tier === "gold" && "🥇 Gold"}
+                {ledger.tier === "silver" && "🥈 Silver"}
+                {ledger.tier === "over-budget" && "🔴 Over budget"}
+              </Text>
+              <Text size={200} style={{ color: tokens.colorNeutralForeground2 }}>
+                {ledger.spent.toFixed(0)} g of {ledger.monthlyBudget.toFixed(0)} g monthly budget used
+              </Text>
+              <ProgressBar
+                value={Math.min(ledger.percentUsed / 100, 1)}
+                color={
+                  ledger.tier === "platinum" || ledger.tier === "gold"
+                    ? "success"
+                    : ledger.tier === "silver"
+                    ? "warning"
+                    : "error"
+                }
+              />
+            </>
+          )}
         </Card>
       )}
 

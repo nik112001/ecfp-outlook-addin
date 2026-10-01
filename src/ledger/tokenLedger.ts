@@ -6,7 +6,7 @@
  * configurable monthly budget; computes badge tier from percentage used.
  *
  * DB name   : "ecfp-ledger"   (separate from the "ecfp" footprint cache)
- * DB version: 1
+ * DB version: 2
  * Stores:
  *   "config"       — keyPath: "key"           — budget & deduplication state
  *   "transactions" — keyPath: "id" (autoIncr) — ledger history
@@ -63,7 +63,7 @@ export type BadgeTier = "platinum" | "gold" | "silver" | "over-budget";
 // ── Internal constants ──────────────────────────────────────────────────────────
 
 const DB_NAME = "ecfp-ledger";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_CONFIG = "config";
 const STORE_TXN = "transactions";
 
@@ -90,15 +90,25 @@ let _dbPromise: Promise<IDBPDatabase> | null = null;
 export async function openLedger(): Promise<IDBPDatabase> {
   if (_dbPromise === null) {
     _dbPromise = openDB(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains(STORE_CONFIG)) {
-          db.createObjectStore(STORE_CONFIG, { keyPath: "key" });
+      upgrade(db, oldVersion, _newVersion, transaction) {
+        // v1 → create base stores (also runs for brand-new installs).
+        if (oldVersion < 1) {
+          if (!db.objectStoreNames.contains(STORE_CONFIG)) {
+            db.createObjectStore(STORE_CONFIG, { keyPath: "key" });
+          }
+          if (!db.objectStoreNames.contains(STORE_TXN)) {
+            db.createObjectStore(STORE_TXN, {
+              keyPath: "id",
+              autoIncrement: true,
+            });
+          }
         }
-        if (!db.objectStoreNames.contains(STORE_TXN)) {
-          db.createObjectStore(STORE_TXN, {
-            keyPath: "id",
-            autoIncrement: true,
-          });
+
+        // v2 → add "month" index to transactions store so queries can use
+        //       IDBIndex.getAll(month) instead of a full table scan.
+        if (oldVersion < 2) {
+          const txnStore = transaction.objectStore(STORE_TXN);
+          txnStore.createIndex("month", "month", { unique: false });
         }
       },
     });
@@ -293,16 +303,22 @@ export async function getMonthTransactions(): Promise<LedgerTransaction[]> {
 /**
  * Reset the ledger for a new calendar month.
  *
- * Clears the transaction history (the old month's records are removed) and
- * resets the "currentMonth" config key to the current month. The running
- * balance implicitly restarts at the monthly budget because there are no
- * transactions yet.
+ * Clears all transactions to start fresh for the new month, then updates the
+ * "currentMonth" config key to the current month. The running balance
+ * implicitly restarts at the monthly budget because there are no transactions
+ * yet after the clear.
  *
  * Note: this does NOT clear the debitedIds set from the old month — those keys
  * become stale naturally and a future housekeeping pass can prune them.
+ *
+ * TODO: multi-month history retention would require selectively deleting only
+ *       records whose `month` field is older than the retention window instead
+ *       of calling db.clear(). The "month" index added in v2 makes such a
+ *       targeted delete efficient.
  */
 export async function resetForNewMonth(): Promise<void> {
   const db = await openLedger();
+  // Clears all transactions to start fresh for the new month.
   await db.clear(STORE_TXN);
   await setConfig(db, KEY_CURRENT_MONTH, currentMonth());
 }
@@ -311,8 +327,8 @@ export async function resetForNewMonth(): Promise<void> {
 
 /**
  * Retrieve all transactions for a given month string from an already-open DB.
- * Filters in-process because the transactions store has no month index —
- * total volume per month is small so a full scan is acceptable.
+ * Filters in-process; the "month" index (added in v2) is available for future
+ * optimisation via IDBIndex.getAll(month) if volume grows.
  */
 async function getMonthTransactionsFromDb(
   db: IDBPDatabase,
