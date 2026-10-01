@@ -196,29 +196,6 @@
         </Host>
       </Hosts>
 
-      <Resources>
-        <bt:Images>
-          <bt:Image id="Icon.16x16" DefaultValue="https://placehold.co/16x16.png" />
-          <bt:Image id="Icon.32x32" DefaultValue="https://placehold.co/32x32.png" />
-          <bt:Image id="Icon.80x80" DefaultValue="https://placehold.co/80x80.png" />
-        </bt:Images>
-        <bt:Urls>
-          <bt:Url id="Commands.Url" DefaultValue="https://localhost:3000/commands.html" />
-          <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
-          <bt:Url id="Taskpane.Url.Read" DefaultValue="https://localhost:3000/taskpane.html?mode=read" />
-          <bt:Url id="Taskpane.Url.Compose" DefaultValue="https://localhost:3000/taskpane.html?mode=compose" />
-        </bt:Urls>
-        <bt:ShortStrings>
-          <bt:String id="GroupLabel" DefaultValue="eCFP" />
-          <bt:String id="TaskpaneButton.Label.Read" DefaultValue="Email Footprint" />
-          <bt:String id="TaskpaneButton.Label.Compose" DefaultValue="CFF" />
-        </bt:ShortStrings>
-        <bt:LongStrings>
-          <bt:String id="TaskpaneButton.Tooltip.Read" DefaultValue="View the carbon footprint of this email." />
-          <bt:String id="TaskpaneButton.Tooltip.Compose" DefaultValue="View the current email carbon footprint while composing." />
-        </bt:LongStrings>
-      </Resources>
-
     </VersionOverrides>
 
   </VersionOverrides>
