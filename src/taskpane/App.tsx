@@ -87,39 +87,31 @@ export default function App(): React.ReactElement {
 
   // When no ?mode= param is present, we need to detect the context from Office.js.
   // null = still detecting, "compose" | "read" | "onboarding" = resolved.
-  const [detectedMode, setDetectedMode] = useState<string | null>(
-    mode !== null ? mode : null
-  );
-  const [detecting, setDetecting] = useState<boolean>(mode === null);
+  const [detectedMode, setDetectedMode] = useState<string | null>(null);
+  // Always wait for Office.onReady so panes never mount before Office initialises.
+  const [detecting, setDetecting] = useState<boolean>(true);
 
   useEffect(() => {
-    // Only run detection when no explicit ?mode= param was supplied.
-    if (mode !== null) return;
-
-    // Office.onReady ensures Office.js has initialised before we inspect context.
     if (typeof Office === "undefined") {
-      // Running in a plain browser (e.g. dev preview) — fall back to onboarding.
-      setDetectedMode("onboarding");
+      if (mode === null) setDetectedMode("onboarding");
       setDetecting(false);
       return;
     }
 
     Office.onReady(() => {
-      try {
-        const item = Office.context?.mailbox?.item;
-        if (!item) {
-          // Office is available but no item is loaded — show onboarding.
+      if (mode === null) {
+        try {
+          const item = Office.context?.mailbox?.item;
+          if (!item) {
+            setDetectedMode("onboarding");
+          } else if (item.itemId) {
+            setDetectedMode("read");
+          } else {
+            setDetectedMode("compose");
+          }
+        } catch {
           setDetectedMode("onboarding");
-        } else if (item.itemId) {
-          // itemId is a non-empty string only in read mode.
-          setDetectedMode("read");
-        } else {
-          // itemId is undefined/null in compose mode.
-          setDetectedMode("compose");
         }
-      } catch {
-        // Any unexpected error — fall back to onboarding.
-        setDetectedMode("onboarding");
       }
       setDetecting(false);
     });

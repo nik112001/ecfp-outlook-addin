@@ -261,7 +261,8 @@ export default function ReadPane(): React.ReactElement {
         Office.EventType.ItemChanged,
         () => {
           lastItemId = undefined; // reset so poll also triggers
-          calculate();
+          // 300ms delay — item context may not have updated to the new email yet
+          setTimeout(() => calculate(), 300);
         }
       );
     }
@@ -383,7 +384,7 @@ export default function ReadPane(): React.ReactElement {
           </div>
           <ProgressBar
             value={factor.value}
-            color={color === "#107c10" ? "success" : color === "#c19c00" ? "warning" : "error"}
+            color={color === "#2e7d4f" ? "success" : color === "#c19c00" ? "warning" : "error"}
           />
         </div>
       ))}

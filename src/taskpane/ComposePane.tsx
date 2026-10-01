@@ -172,6 +172,9 @@ export default function ComposePane(): React.ReactElement {
   // In-flight guard to prevent overlapping recalculate calls.
   const calculatingRef = useRef<boolean>(false);
 
+  // Only show the loading spinner on the very first calculation, not on every poll.
+  const hasInitialDataRef = useRef<boolean>(false);
+
   // ── recalculate ─────────────────────────────────────────────────────────────
 
   const recalculate = useCallback((): void => {
@@ -188,7 +191,7 @@ export default function ComposePane(): React.ReactElement {
     }
 
     calculatingRef.current = true;
-    setLoading(true);
+    if (!hasInitialDataRef.current) setLoading(true);
 
     // Wrap getAsync callbacks in Promises for parallel execution.
     const toPromise = new Promise<Office.EmailAddressDetails[]>((resolve) => {
@@ -224,17 +227,30 @@ export default function ComposePane(): React.ReactElement {
       );
     });
 
-    Promise.all([toPromise, ccPromise, bodyPromise])
-      .then(
-        ([toList, ccList, bodyMB]) => {
-          // Attachment size is synchronous in compose mode.
-          const attachments: Office.AttachmentDetails[] =
-            item.attachments ?? [];
-          const attachmentCount = attachments.length;
-          const attachmentMB =
-            attachments.reduce((sum, att) => sum + (att.size ?? 0), 0) /
-            (1024 * 1024);
+    // Prefer getAttachmentsAsync (Mailbox 1.8) for accurate sizes; fall back to
+    // synchronous item.attachments which may have stale/zero sizes during upload.
+    const attachmentsPromise = new Promise<{ count: number; mb: number }>((resolve) => {
+      if (typeof (item as any).getAttachmentsAsync === "function") {
+        (item as any).getAttachmentsAsync(
+          (result: Office.AsyncResult<Office.AttachmentDetails[]>) => { // eslint-disable-line
+            const atts: Office.AttachmentDetails[] =
+              result.status === Office.AsyncResultStatus.Succeeded
+                ? result.value ?? []
+                : (item.attachments ?? []);
+            const mb = atts.reduce((sum, att) => sum + (att.size ?? 0), 0) / (1024 * 1024);
+            resolve({ count: atts.length, mb });
+          }
+        );
+      } else {
+        const atts: Office.AttachmentDetails[] = item.attachments ?? [];
+        const mb = atts.reduce((sum, att) => sum + (att.size ?? 0), 0) / (1024 * 1024);
+        resolve({ count: atts.length, mb });
+      }
+    });
 
+    Promise.all([toPromise, ccPromise, bodyPromise, attachmentsPromise])
+      .then(
+        ([toList, ccList, bodyMB, { count: attachmentCount, mb: attachmentMB }]) => {
           const allRecipients = [...toList, ...ccList];
           const recipientCount = allRecipients.length;
 
@@ -257,6 +273,7 @@ export default function ComposePane(): React.ReactElement {
             isIntranet,
           });
 
+          hasInitialDataRef.current = true;
           setCff({
             gCO2e,
             sizeMB,
@@ -301,7 +318,8 @@ export default function ComposePane(): React.ReactElement {
     item.addHandlerAsync(
       Office.EventType.AttachmentsChanged,
       (_ev: Office.AttachmentsChangedEventArgs) => { // eslint-disable-line
-        setTimeout(() => recalculate(), 800);
+        // 2s delay — file upload may not be complete when the event fires
+        setTimeout(() => recalculate(), 2000);
       }
     );
 
