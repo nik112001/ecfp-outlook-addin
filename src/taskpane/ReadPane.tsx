@@ -75,6 +75,7 @@ interface EmailData {
   sizeMB: number;
   recipientCount: number;
   isIntranet: boolean;
+  itemId: string | undefined;
 }
 
 interface DisplayState {
@@ -124,6 +125,7 @@ const DEMO_EMAIL_DATA: EmailData = {
   sizeMB: 0.5,
   recipientCount: 3,
   isIntranet: false,
+  itemId: undefined,
 };
 
 // ── Office.js data-reading logic ──────────────────────────────────────────────
@@ -149,6 +151,10 @@ function readOfficeItemData(): Promise<EmailData> {
     }
 
     const item = mailbox.item; // eslint-disable-line
+
+    // Capture itemId NOW before any async work — prevents associating the wrong
+    // itemId if the user switches email again while body.getAsync is in-flight.
+    const itemId: string | undefined = (item as any).itemId ?? undefined;
 
     // Collect recipients from To + Cc
     const toList: Office.EmailAddressDetails[] = item.to ?? [];
@@ -188,7 +194,7 @@ function readOfficeItemData(): Promise<EmailData> {
           bodyMB = result.value.length / (1024 * 1024);
         }
         const sizeMB = attachmentMB + bodyMB;
-        resolve({ sizeMB, recipientCount, isIntranet });
+        resolve({ sizeMB, recipientCount, isIntranet, itemId });
       }
     );
   });
@@ -205,23 +211,29 @@ export default function ReadPane(): React.ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    let lastItemId: string | undefined;
+    let calculating = false;
+    // Tracks the itemId of the email currently rendered — only set after a
+    // successful data load, never set by the poll itself.
+    let displayedItemId: string | undefined;
 
     const calculate = () => {
-      if (cancelled) return;
+      if (cancelled || calculating) return;
+      calculating = true;
       setLoading(true);
+
       readOfficeItemData()
         .then((emailData) => {
           if (cancelled) return;
           const result = calcSendReceive(emailData);
+          // Update displayedItemId ONLY here — this is the source of truth for
+          // what the user is currently seeing.
+          displayedItemId = emailData.itemId;
           setDisplay({ emailData, result });
           setIsDemo(false);
           setLoading(false);
-          const item = Office.context?.mailbox?.item as Office.MessageRead | undefined;
-          const itemId = item?.itemId;
-          if (itemId) {
+          if (emailData.itemId) {
             putFootprint({
-              messageId: itemId,
+              messageId: emailData.itemId,
               gCO2e: result.gCO2e,
               sizeMB: emailData.sizeMB,
               recipientCount: emailData.recipientCount,
@@ -229,7 +241,7 @@ export default function ReadPane(): React.ReactElement {
               calculatedAt: Date.now(),
               methodologyVersion: METHODOLOGY_VERSION,
             }).catch(() => {});
-            debitEmail(itemId, result.gCO2e).catch(() => {});
+            debitEmail(emailData.itemId, result.gCO2e).catch(() => {});
           }
         })
         .catch(() => {
@@ -238,32 +250,31 @@ export default function ReadPane(): React.ReactElement {
           setDisplay({ emailData: DEMO_EMAIL_DATA, result });
           setIsDemo(true);
           setLoading(false);
+        })
+        .finally(() => {
+          calculating = false;
         });
     };
 
-    // Poll every 800ms — recalculate only when itemId actually changes.
-    // ItemChanged event is unreliable in Outlook web for sideloaded add-ins.
-    const poll = setInterval(() => {
-      if (cancelled) return;
-      const currentItem = Office.context?.mailbox?.item as Office.MessageRead | undefined;
-      const currentId = currentItem?.itemId;
-      if (currentId !== lastItemId) {
-        lastItemId = currentId;
-        calculate();
-      }
-    }, 800);
-
     calculate();
 
-    // Primary: ItemChanged fires when user clicks a different email (requires SupportsPinning)
+    // Poll every 500ms — fires calculate() only when the live Office item differs
+    // from what we last rendered. The poll never mutates displayedItemId; only
+    // calculate() does, ensuring the comparison is always "rendered vs current".
+    const poll = setInterval(() => {
+      if (cancelled || calculating) return;
+      const currentId = (Office.context?.mailbox?.item as any)?.itemId as string | undefined;
+      if (currentId && currentId !== displayedItemId) {
+        calculate();
+      }
+    }, 500);
+
+    // ItemChanged: primary fast path — fires before the poll catches it.
+    // 600ms delay gives Office.js time to update the item reference.
     if (typeof Office !== 'undefined' && Office.context?.mailbox?.addHandlerAsync) {
       Office.context.mailbox.addHandlerAsync(
         Office.EventType.ItemChanged,
-        () => {
-          lastItemId = undefined; // reset so poll also triggers
-          // 300ms delay — item context may not have updated to the new email yet
-          setTimeout(() => calculate(), 300);
-        }
+        () => { setTimeout(() => { if (!cancelled) calculate(); }, 600); }
       );
     }
 
