@@ -131,7 +131,11 @@ function getItemKey(item: any): string {
   const conv: string = item.conversationId ?? "";
   const from: string = item.from?.emailAddress ?? "";
   const subj: string = item.subject ?? "";
-  return [conv, from, subj].filter(Boolean).join("|");
+  const composed = [conv, from, subj].filter(Boolean).join("|");
+  // If none of the identifying fields exist yet, return a sentinel that
+  // signals "item object exists but isn't fully loaded" — still truthy, so the
+  // poll knows an item IS present and can attempt a real calculation.
+  return composed || "item-loading";
 }
 
 // ── Demo fallback data (used when Office context is unavailable) ───────────────
@@ -261,11 +265,11 @@ export default function ReadPane(): React.ReactElement {
           if (cancelled) return;
           const result = calcSendReceive(emailData);
 
-          // Build the key that represents this email in the poll.
+          // Build stable key for the rendered email — prefer itemId, fall back to fingerprint.
           const rawItem = (typeof Office !== "undefined")
             ? (Office.context?.mailbox?.item as any)
             : null;
-          displayedKey = emailData.itemId || getItemKey(rawItem) || emailData.itemId;
+          displayedKey = emailData.itemId || getItemKey(rawItem) || "loaded";
 
           if (SHOW_DEBUG) {
             setDebugInfo((d) => ({ ...d, displayedKey: displayedKey ?? "", calcCount: debugRef.current.calcCount }));
@@ -289,10 +293,16 @@ export default function ReadPane(): React.ReactElement {
         })
         .catch(() => {
           if (cancelled) return;
+          // Item was null — leave displayedKey empty so the poll retries
+          // as soon as Office.context.mailbox.item becomes non-null.
+          displayedKey = undefined;
           const result = calcSendReceive(DEMO_EMAIL_DATA);
           setDisplay({ emailData: DEMO_EMAIL_DATA, result });
           setIsDemo(true);
           setLoading(false);
+          if (SHOW_DEBUG) {
+            setDebugInfo((d) => ({ ...d, calcCount: debugRef.current.calcCount }));
+          }
         })
         .finally(() => {
           calculating = false;
@@ -301,9 +311,11 @@ export default function ReadPane(): React.ReactElement {
 
     calculate();
 
-    // Poll every 500ms — fires calculate() only when the live Office item differs
-    // from what we last rendered. Uses a fingerprint key (itemId → conversationId|from|subject)
-    // so detection works even when new Outlook doesn't expose itemId synchronously.
+    // Poll every 500ms. Three cases trigger calculate():
+    //   1. displayedKey is empty (never loaded OR last load failed) AND item is now present
+    //      → new Outlook populates item asynchronously after onReady; keep retrying.
+    //   2. currentKey changed — user switched to a different email.
+    // The poll never writes displayedKey; only calculate()'s .then() does.
     const poll = setInterval(() => {
       if (cancelled || calculating) return;
       const rawItem = (typeof Office !== "undefined")
@@ -313,7 +325,8 @@ export default function ReadPane(): React.ReactElement {
       if (SHOW_DEBUG) {
         setDebugInfo((d) => ({ ...d, itemKey: currentKey, displayedKey: displayedKey ?? "" }));
       }
-      if (currentKey && currentKey !== displayedKey) {
+      // Trigger when item is present AND (we have no successful render yet, OR email changed).
+      if (rawItem && (!displayedKey || (currentKey && currentKey !== displayedKey))) {
         calculate();
       }
     }, 500);
