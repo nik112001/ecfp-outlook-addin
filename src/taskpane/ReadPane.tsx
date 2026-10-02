@@ -126,16 +126,16 @@ function extractDomain(email: string): string {
  */
 function getItemKey(item: any): string {
   if (!item) return "";
-  const id: string = item.itemId ?? "";
-  if (id) return id;
-  const conv: string = item.conversationId ?? "";
+  // In new Outlook (monarch) with a pinned taskpane, item.itemId can be frozen
+  // (doesn't update when the user switches emails), while from/subject/conversationId
+  // DO reflect the currently displayed email. So we build the key from those
+  // message-level fields first and only fall back to itemId as a last resort.
   const from: string = item.from?.emailAddress ?? "";
   const subj: string = item.subject ?? "";
-  const composed = [conv, from, subj].filter(Boolean).join("|");
-  // If none of the identifying fields exist yet, return a sentinel that
-  // signals "item object exists but isn't fully loaded" — still truthy, so the
-  // poll knows an item IS present and can attempt a real calculation.
-  return composed || "item-loading";
+  const conv: string = item.conversationId ?? "";
+  const contentKey = [from, subj, conv].filter(Boolean).join("|");
+  if (contentKey) return contentKey;
+  return item.itemId ?? "item-loading";
 }
 
 // ── Demo fallback data (used when Office context is unavailable) ───────────────
@@ -265,11 +265,12 @@ export default function ReadPane(): React.ReactElement {
           if (cancelled) return;
           const result = calcSendReceive(emailData);
 
-          // Build stable key for the rendered email — prefer itemId, fall back to fingerprint.
+          // Build stable key for the rendered email using the same fingerprint the
+          // poll uses (from|subject|conv), so the comparison is always apples-to-apples.
           const rawItem = (typeof Office !== "undefined")
             ? (Office.context?.mailbox?.item as any)
             : null;
-          displayedKey = emailData.itemId || getItemKey(rawItem) || "loaded";
+          displayedKey = getItemKey(rawItem) || emailData.itemId || "loaded";
 
           if (SHOW_DEBUG) {
             setDebugInfo((d) => ({ ...d, displayedKey: displayedKey ?? "", calcCount: debugRef.current.calcCount }));
