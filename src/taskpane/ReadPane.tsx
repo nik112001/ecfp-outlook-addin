@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Text,
   Card,
@@ -119,6 +119,21 @@ function extractDomain(email: string): string {
   return parts.length === 2 ? parts[1].toLowerCase() : "";
 }
 
+/**
+ * Build a stable identity key for the current item.
+ * itemId is preferred; falls back to conversationId+from+subject so the poll
+ * still detects switches even when new Outlook doesn't expose itemId sync.
+ */
+function getItemKey(item: any): string {
+  if (!item) return "";
+  const id: string = item.itemId ?? "";
+  if (id) return id;
+  const conv: string = item.conversationId ?? "";
+  const from: string = item.from?.emailAddress ?? "";
+  const subj: string = item.subject ?? "";
+  return [conv, from, subj].filter(Boolean).join("|");
+}
+
 // ── Demo fallback data (used when Office context is unavailable) ───────────────
 
 const DEMO_EMAIL_DATA: EmailData = {
@@ -202,32 +217,60 @@ function readOfficeItemData(): Promise<EmailData> {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+// Show debug bar when ?debug=1 is in the URL (load pane as ?mode=read&debug=1).
+const SHOW_DEBUG = typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("debug");
+
+interface DebugInfo {
+  itemKey: string;
+  displayedKey: string;
+  itemChangedCount: number;
+  calcCount: number;
+  handlerRegistered: boolean;
+}
+
 export default function ReadPane(): React.ReactElement {
   const styles = useStyles();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [display, setDisplay] = useState<DisplayState | null>(null);
   const [isDemo, setIsDemo] = useState<boolean>(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    itemKey: "", displayedKey: "", itemChangedCount: 0, calcCount: 0, handlerRegistered: false,
+  });
+  // Keep mutable debug counters in a ref so the interval closure always sees fresh values.
+  const debugRef = useRef({ itemChangedCount: 0, calcCount: 0 });
 
   useEffect(() => {
     let cancelled = false;
     let calculating = false;
-    // Tracks the itemId of the email currently rendered — only set after a
-    // successful data load, never set by the poll itself.
-    let displayedItemId: string | undefined;
+    // Tracks the identity key of the email currently rendered.
+    // Set only after a successful data load — never by the poll itself.
+    // Uses itemId when available; falls back to conversationId|from|subject fingerprint
+    // so the poll still detects switches even when new Outlook omits itemId.
+    let displayedKey: string | undefined;
 
     const calculate = () => {
       if (cancelled || calculating) return;
       calculating = true;
+      debugRef.current.calcCount++;
       setLoading(true);
 
       readOfficeItemData()
         .then((emailData) => {
           if (cancelled) return;
           const result = calcSendReceive(emailData);
-          // Update displayedItemId ONLY here — this is the source of truth for
-          // what the user is currently seeing.
-          displayedItemId = emailData.itemId;
+
+          // Build the key that represents this email in the poll.
+          const rawItem = (typeof Office !== "undefined")
+            ? (Office.context?.mailbox?.item as any)
+            : null;
+          displayedKey = emailData.itemId || getItemKey(rawItem) || emailData.itemId;
+
+          if (SHOW_DEBUG) {
+            setDebugInfo((d) => ({ ...d, displayedKey: displayedKey ?? "", calcCount: debugRef.current.calcCount }));
+          }
+
           setDisplay({ emailData, result });
           setIsDemo(false);
           setLoading(false);
@@ -259,29 +302,46 @@ export default function ReadPane(): React.ReactElement {
     calculate();
 
     // Poll every 500ms — fires calculate() only when the live Office item differs
-    // from what we last rendered. The poll never mutates displayedItemId; only
-    // calculate() does, ensuring the comparison is always "rendered vs current".
+    // from what we last rendered. Uses a fingerprint key (itemId → conversationId|from|subject)
+    // so detection works even when new Outlook doesn't expose itemId synchronously.
     const poll = setInterval(() => {
       if (cancelled || calculating) return;
-      const currentId = (Office.context?.mailbox?.item as any)?.itemId as string | undefined;
-      if (currentId && currentId !== displayedItemId) {
+      const rawItem = (typeof Office !== "undefined")
+        ? (Office.context?.mailbox?.item as any)
+        : null;
+      const currentKey = getItemKey(rawItem);
+      if (SHOW_DEBUG) {
+        setDebugInfo((d) => ({ ...d, itemKey: currentKey, displayedKey: displayedKey ?? "" }));
+      }
+      if (currentKey && currentKey !== displayedKey) {
         calculate();
       }
     }, 500);
 
     // ItemChanged: primary fast path — fires before the poll catches it.
-    // 600ms delay gives Office.js time to update the item reference.
-    if (typeof Office !== 'undefined' && Office.context?.mailbox?.addHandlerAsync) {
+    // 800ms delay gives new Outlook time to update Office.context.mailbox.item.
+    let handlerOk = false;
+    if (typeof Office !== "undefined" && Office.context?.mailbox?.addHandlerAsync) {
       Office.context.mailbox.addHandlerAsync(
         Office.EventType.ItemChanged,
-        () => { setTimeout(() => { if (!cancelled) calculate(); }, 600); }
+        () => {
+          debugRef.current.itemChangedCount++;
+          if (SHOW_DEBUG) {
+            setDebugInfo((d) => ({ ...d, itemChangedCount: debugRef.current.itemChangedCount }));
+          }
+          setTimeout(() => { if (!cancelled) calculate(); }, 800);
+        },
+        (result: Office.AsyncResult<void>) => {
+          handlerOk = result.status === Office.AsyncResultStatus.Succeeded;
+          if (SHOW_DEBUG) setDebugInfo((d) => ({ ...d, handlerRegistered: handlerOk }));
+        }
       );
     }
 
     return () => {
       cancelled = true;
       clearInterval(poll);
-      if (typeof Office !== 'undefined' && Office.context?.mailbox?.removeHandlerAsync) {
+      if (typeof Office !== "undefined" && Office.context?.mailbox?.removeHandlerAsync) {
         Office.context.mailbox.removeHandlerAsync(Office.EventType.ItemChanged);
       }
     };
@@ -409,6 +469,25 @@ export default function ReadPane(): React.ReactElement {
           How is this calculated?
         </Link>
       </div>
+
+      {SHOW_DEBUG && (
+        <div style={{
+          marginTop: tokens.spacingVerticalS,
+          padding: "6px 8px",
+          background: "#1e1e1e",
+          borderRadius: tokens.borderRadiusMedium,
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#d4d4d4",
+          lineHeight: "1.6",
+        }}>
+          <div><span style={{ color: "#9cdcfe" }}>handler</span> {debugInfo.handlerRegistered ? <span style={{ color: "#4ec9b0" }}>✓ registered</span> : <span style={{ color: "#f48771" }}>✗ not registered</span>}</div>
+          <div><span style={{ color: "#9cdcfe" }}>ItemChanged</span> fired {debugInfo.itemChangedCount}×</div>
+          <div><span style={{ color: "#9cdcfe" }}>calculate()</span> called {debugInfo.calcCount}×</div>
+          <div><span style={{ color: "#9cdcfe" }}>current key</span> <span style={{ color: "#ce9178" }}>{debugInfo.itemKey || "(empty)"}</span></div>
+          <div><span style={{ color: "#9cdcfe" }}>displayed key</span> <span style={{ color: "#ce9178" }}>{debugInfo.displayedKey || "(empty)"}</span></div>
+        </div>
+      )}
     </div>
   );
 }
